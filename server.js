@@ -47,56 +47,47 @@ app.get("/games/v2/users/:userId/games", async (req, res) => {
 });
 
 app.get("/games/v1/games/:universeId/game-passes", async (req, res) => {
+  const universeId = req.params.universeId;
+  let allPasses = [];
+
+  // Method 1: catalog.roblox.com (most reliable)
   try {
-    const universeId = req.params.universeId;
-    
-    // Try the standard API first
-    try {
-      const data = await httpsGet("https://games.roblox.com/v1/games/" + universeId + "/game-passes?limit=100&sortOrder=Asc");
-      if (data.data && data.data.length > 0) {
-        res.json(data);
-        return;
+    const searchData = await httpsGet("https://catalog.roblox.com/v1/search/items?category=GamePass&sortType=3&universeId=" + universeId + "&limit=10");
+    if (searchData && searchData.data && Array.isArray(searchData.data)) {
+      for (const item of searchData.data) {
+        allPasses.push({
+          id: item.id || item.assetId || 0,
+          name: item.name || "Game Pass",
+          price: item.price || 0
+        });
       }
-    } catch (e) {}
-
-    // Fallback: use the old roblox.com endpoint
-    try {
-      const raw = await httpsGet("https://www.roblox.com/games/getgamepassesjson?universeId=" + universeId + "&sortOrder=Asc&limit=25");
-      if (raw && raw.GamePasses) {
-        const passes = raw.GamePasses.map(function(p) {
-          return {
-            id: p.GamePassID || p.ID || p.Id,
-            name: p.Name || p.Name,
-            price: p.PriceInRobux || p.Price || 0,
-            iconImageAssetId: p.IconImageAssetID || 0
-          };
-        }).filter(function(p) { return p.price > 0; });
-        res.json({ previousPageCursor: null, nextPageCursor: null, data: passes });
-        return;
-      }
-    } catch (e2) {}
-
-    // Last fallback: search.roblox.com catalog json
-    try {
-      const searchData = await httpsGet("https://search.roblox.com/catalog/json?Category=34&GameFilter=" + universeId + "&SortType=3&SortAggregation=5&ResultsPerPage=25");
-      if (searchData && Array.isArray(searchData)) {
-        const passes = searchData.map(function(item) {
-          return {
-            id: item.Id || item.AssetId,
-            name: item.Name,
-            price: item.PriceInRobux || item.Price || 0,
-            iconImageAssetId: 0
-          };
-        }).filter(function(p) { return p.price > 0; });
-        res.json({ previousPageCursor: null, nextPageCursor: null, data: passes });
-        return;
-      }
-    } catch (e3) {}
-
-    res.json({ previousPageCursor: null, nextPageCursor: null, data: [] });
+    }
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    console.log("Method 1 failed:", e.message);
   }
+
+  // Method 2: games.roblox.com API
+  if (allPasses.length === 0) {
+    try {
+      const gameData = await httpsGet("https://games.roblox.com/v1/games/" + universeId + "/game-passes?limit=100&sortOrder=Asc");
+      if (gameData && gameData.data && Array.isArray(gameData.data)) {
+        for (const item of gameData.data) {
+          allPasses.push({
+            id: item.id || 0,
+            name: item.name || "Game Pass",
+            price: item.price || 0
+          });
+        }
+      }
+    } catch (e2) {
+      console.log("Method 2 failed:", e2.message);
+    }
+  }
+
+  // Filter out free passes
+  allPasses = allPasses.filter(function(p) { return p.price > 0; });
+
+  res.json({ previousPageCursor: null, nextPageCursor: null, data: allPasses });
 });
 
 app.get("/", (req, res) => {
